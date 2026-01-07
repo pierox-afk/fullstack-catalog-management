@@ -1,7 +1,8 @@
-import { IsString, Length } from 'class-validator';
+import { IsNotEmpty, IsString, MinLength } from 'class-validator';
 
 export class CreateStoreDto {
   @IsString()
-  @Length(1, 255)
+  @IsNotEmpty()
+  @MinLength(3)
   name: string;
 }

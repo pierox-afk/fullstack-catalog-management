@@ -6,62 +6,58 @@ import {
   Patch,
   Param,
   Delete,
-  Query,
   UseGuards,
+  Query,
+  ParseUUIDPipe,
 } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { StoresService } from './stores.service';
 import { CreateStoreDto } from './dto/create-store.dto';
 import { UpdateStoreDto } from './dto/update-store.dto';
-import { StoreProductsService } from '../store-products/store-products.service';
-import { CreateStoreProductDto } from '../store-products/dto/create-store-product.dto';
-import { AuthGuard } from '@nestjs/passport';
+import { PaginationDto } from '../common/dto/pagination.dto';
+import { AddProductToStoreDto } from './dto/add-product-to-store.dto';
 
 @Controller('stores')
 export class StoresController {
-  constructor(
-    private readonly storesService: StoresService,
-    private readonly spService: StoreProductsService,
-  ) {}
+  constructor(private readonly storesService: StoresService) {}
 
-  @UseGuards(AuthGuard('jwt'))
   @Post()
+  @UseGuards(JwtAuthGuard)
   create(@Body() createStoreDto: CreateStoreDto) {
     return this.storesService.create(createStoreDto);
   }
 
   @Get()
-  findAll(
-    @Query('page') page = '1',
-    @Query('limit') limit = '10',
-    @Query('q') q?: string,
-  ) {
-    return this.storesService.findAll(Number(page), Number(limit), q);
+  findAll(@Query() pagination: PaginationDto) {
+    return this.storesService.findAll(pagination);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.storesService.findOne(Number(id));
+  findOne(@Param('id', ParseUUIDPipe) id: string) {
+    return this.storesService.findOne(id);
   }
 
-  @UseGuards(AuthGuard('jwt'))
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateStoreDto: UpdateStoreDto) {
-    return this.storesService.update(Number(id), updateStoreDto);
-  }
-
-  @UseGuards(AuthGuard('jwt'))
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.storesService.remove(Number(id));
-  }
-
-  // POST /stores/:id/products
-  @UseGuards(AuthGuard('jwt'))
-  @Post(':id/products')
-  addProductToStore(
-    @Param('id') id: string,
-    @Body() dto: CreateStoreProductDto,
+  @UseGuards(JwtAuthGuard)
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() updateStoreDto: UpdateStoreDto,
   ) {
-    return this.spService.createForStore(Number(id), dto);
+    return this.storesService.update(id, updateStoreDto);
+  }
+
+  @Delete(':id')
+  @UseGuards(JwtAuthGuard)
+  remove(@Param('id', ParseUUIDPipe) id: string) {
+    return this.storesService.remove(id);
+  }
+
+  @Post(':id/products')
+  @UseGuards(JwtAuthGuard)
+  addProductToStore(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() addProductToStoreDto: AddProductToStoreDto,
+  ) {
+    return this.storesService.addProductToStore(id, addProductToStoreDto);
   }
 }

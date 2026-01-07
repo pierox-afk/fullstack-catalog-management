@@ -1,47 +1,104 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, ILike } from 'typeorm';
+import { Repository } from 'typeorm';
 import { CreateStoreDto } from './dto/create-store.dto';
 import { UpdateStoreDto } from './dto/update-store.dto';
 import { Store } from './entities/store.entity';
+import { PaginationDto } from '../common/dto/pagination.dto';
+import { AddProductToStoreDto } from './dto/add-product-to-store.dto';
+import { StoreProduct } from './entities/store-product.entity';
+import { ProductsService } from '../products/products.service';
 
 @Injectable()
 export class StoresService {
-  constructor(@InjectRepository(Store) private repo: Repository<Store>) {}
+  constructor(
+    @InjectRepository(Store)
+    private readonly storeRepository: Repository<Store>,
+    @InjectRepository(StoreProduct)
+    private readonly storeProductRepository: Repository<StoreProduct>,
+    private readonly productsService: ProductsService,
+  ) {}
 
-  async create(dto: CreateStoreDto) {
-    const s = this.repo.create(dto);
-    return this.repo.save(s);
+  create(createStoreDto: CreateStoreDto) {
+    const store = this.storeRepository.create(createStoreDto);
+    return this.storeRepository.save(store);
   }
 
-  async findAll(page = 1, limit = 10, q?: string) {
-    const skip = (page - 1) * limit;
-    const where = q ? { name: ILike(`%${q}%`) } : {};
-    const [items, total] = await this.repo.findAndCount({
-      where,
-      skip,
-      take: limit,
+  async findAll(pagination: PaginationDto) {
+    const { limit = 10, offset = 0, q } = pagination;
+    const queryBuilder = this.storeRepository.createQueryBuilder('store');
+
+    if (q) {
+      queryBuilder.where('store.name ILIKE :q', { q: `%${q}%` });
+    }
+
+    const [stores, total]: [Store[], number] = await queryBuilder
+      .skip(offset)
+      .take(limit)
+      .getManyAndCount();
+
+    return {
+      data: stores,
+      meta: {
+        totalItems: total,
+        itemsPerPage: limit,
+        currentPage: offset / limit + 1,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async findOne(id: string) {
+    const store = await this.storeRepository.findOneBy({ id });
+    if (!store) throw new NotFoundException(`Store with id ${id} not found`);
+    return store;
+  }
+
+  async update(id: string, updateStoreDto: UpdateStoreDto) {
+    const store = await this.storeRepository.preload({
+      id,
+      ...updateStoreDto,
     });
-    return { items, total, page, limit };
+    if (!store) throw new NotFoundException(`Store with id ${id} not found`);
+    return this.storeRepository.save(store);
   }
 
-  async findOne(id: number) {
-    const s = await this.repo.findOneBy({ id });
-    if (!s) throw new NotFoundException('Store not found');
-    return s;
+  async remove(id: string) {
+    const store = await this.findOne(id);
+    await this.storeRepository.remove(store);
+    return { message: `Store with id ${id} deleted` };
   }
 
-  async update(id: number, dto: UpdateStoreDto) {
-    const s = await this.findOne(id);
-    Object.assign(s, dto);
-    return this.repo.save(s);
-  }
+  async addProductToStore(
+    storeId: string,
+    addProductDto: AddProductToStoreDto,
+  ) {
+    const store = await this.findOne(storeId);
+    // Aquí necesitaríamos un ProductsService para validar que el producto existe
+    // Por ahora, asumimos que existe y lo crearemos en el siguiente paso.
+    const product = await this.productsService.findOne(addProductDto.productId);
 
-  async remove(id: number) {
-    const s = await this.findOne(id);
-    (await this.repo.softRemove)
-      ? this.repo.softRemove(s)
-      : this.repo.remove(s);
-    return { removed: true };
+    // Verificar duplicado: si ya existe una relación store-product para este par
+    const existing = await this.storeProductRepository.findOne({
+      where: { store: { id: storeId }, product: { id: product.id } },
+    });
+    if (existing) {
+      throw new ConflictException(
+        'El producto ya ha sido asociado a esta tienda.',
+      );
+    }
+
+    const storeProduct: StoreProduct = this.storeProductRepository.create({
+      store,
+      product,
+      price: addProductDto.price,
+      stock: addProductDto.stock,
+    });
+
+    return this.storeProductRepository.save(storeProduct);
   }
 }

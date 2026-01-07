@@ -7,26 +7,41 @@ import { Product } from './entities/product.entity';
 
 @Injectable()
 export class ProductsService {
-  constructor(@InjectRepository(Product) private repo: Repository<Product>) {}
+  constructor(
+    @InjectRepository(Product) private readonly repo: Repository<Product>,
+  ) {}
 
   async create(dto: CreateProductDto) {
-    const p = this.repo.create(dto);
-    return this.repo.save(p);
+    const entity = this.repo.create(dto);
+    return this.repo.save(entity);
   }
 
-  async findAll() {
-    return this.repo.find();
+  /** Simple paginated list. If no params provided, returns up to 100 items. */
+  async findAll(options?: { limit?: number; offset?: number }) {
+    const limit = options?.limit ?? 100;
+    const offset = options?.offset ?? 0;
+    const [data, total]: [Product[], number] = await this.repo.findAndCount({
+      skip: offset,
+      take: limit,
+    });
+    return { data, total, limit, offset };
   }
 
   async findOne(id: string) {
-    const p = await this.repo.findOneBy({ id });
-    if (!p) throw new NotFoundException('Product not found');
-    return p;
+    const item = await this.repo.findOneBy({ id });
+    if (!item) throw new NotFoundException(`Product with id ${id} not found`);
+    return item;
+  }
+
+  async update(id: string, dto: UpdateProductDto) {
+    const toSave = await this.repo.preload({ id, ...dto } as Partial<Product>);
+    if (!toSave) throw new NotFoundException(`Product with id ${id} not found`);
+    return this.repo.save(toSave);
   }
 
   async remove(id: string) {
-    const p = await this.findOne(id);
-    await this.repo.remove(p);
+    const item = await this.findOne(id);
+    await this.repo.remove(item);
     return { removed: true };
   }
 }
